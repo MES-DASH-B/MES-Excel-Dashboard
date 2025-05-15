@@ -6,7 +6,7 @@ from datetime import timedelta, datetime
 # Set page config
 st.set_page_config(page_title="YouTube Channel Dashboard", layout="wide")
 
-# Initialize session state
+# Initialize session state for page navigation and settings
 if "page" not in st.session_state:
     st.session_state.page = "welcome"
 if "metric_page" not in st.session_state:
@@ -51,16 +51,18 @@ def is_period_complete(date, freq):
         return date.date() < today.date()
     elif freq == 'W':
         return date + timedelta(days=6) < today
-    elif freq == 'ME':
+    elif freq == 'M':
         next_month = date.replace(day=28) + timedelta(days=4)
         return next_month.replace(day=1) <= today
-    elif freq == 'QE':
+    elif freq == 'Q':
+        # Calculate current quarter start date
         current_month = (today.month - 1) // 3 * 3 + 1
         current_quarter_start = datetime(today.year, current_month, 1)
         return date < current_quarter_start
     return True
 
 def create_metric_chart(df, column, chart_type, time_frame='Daily', height=150):
+    # Prepare dataframe with DATE as index and resample
     df = df.set_index("DATE")
     if time_frame == 'Quarterly':
         df_resampled = df.resample('Q').sum()
@@ -84,37 +86,38 @@ def create_metric_chart(df, column, chart_type, time_frame='Daily', height=150):
 
 def display_metric_with_button(col, title, value, df, column, color, key_suffix="", section=""):
     with col:
-        delta, delta_percent = calculate_delta(df, column)
-        delta_str = f"{delta:+,.0f} ({delta_percent:+.2f}%)"
-        col.markdown(f"""
-            <div class="stContainer {section}">
-                <div class="metric-title" style="color:{color}; font-weight:bold;">{title}</div>
-                <div class="metric-value" style="font-size:24px;">{value:,}</div>
-                <p style="font-size:0.9rem; color:grey;">Change: {delta_str}</p>
-            </div>
-        """, unsafe_allow_html=True)
+        with st.container():
+            delta, delta_percent = calculate_delta(df, column)
+            delta_str = f"{delta:+,.0f} ({delta_percent:+.2f}%)"
+            col.markdown(f"""
+                <div class="stContainer {section}">
+                    <div class="metric-title" style="color:{color}; font-weight:bold;">{title}</div>
+                    <div class="metric-value" style="font-size:24px;">{value:,}</div>
+                    <p style="font-size:0.9rem; color:grey;">Change: {delta_str}</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-        # Small chart below metric
-        create_metric_chart(
-            df,
-            column,
-            chart_type=st.session_state.chart_type,
-            time_frame=st.session_state.time_frame,
-            height=150
-        )
+            # Small chart below metric
+            create_metric_chart(
+                df,
+                column,
+                chart_type=st.session_state.chart_type,
+                time_frame=st.session_state.time_frame,
+                height=150
+            )
 
-        # Check if last period incomplete
-        last_period = df.set_index("DATE").index[-1]
-        freq_map = {'Daily': 'D', 'Weekly': 'W', 'Monthly': 'ME', 'Quarterly': 'QE'}
-        freq = freq_map.get(st.session_state.time_frame, 'D')
-        if not is_period_complete(last_period, freq):
-            col.caption(f"Note: The last {st.session_state.time_frame.lower()[:-2] if st.session_state.time_frame != 'Daily' else 'day'} is incomplete.")
+            # Check if last period incomplete
+            last_period = df.set_index("DATE").index[-1]
+            freq_map = {'Daily': 'D', 'Weekly': 'W', 'Monthly': 'M', 'Quarterly': 'Q'}
+            freq = freq_map.get(st.session_state.time_frame, 'D')
+            if not is_period_complete(last_period, freq):
+                st.caption(f"Note: The last {st.session_state.time_frame.lower()[:-2] if st.session_state.time_frame != 'Daily' else 'day'} is incomplete.")
 
-        if col.button(f"Open {title}", key=f"btn_{title.replace(' ', '_').lower()}_{key_suffix}"):
-            st.session_state.metric_page = title.replace(" ", "_").lower()
-            st.session_state.page = "metric"
-            st.session_state.section = section
-            st.rerun()
+            if col.button(f"Open {title}", key=f"btn_{title.replace(' ', '_').lower()}_{key_suffix}"):
+                st.session_state.metric_page = title.replace(" ", "_").lower()
+                st.session_state.page = "metric"
+                st.session_state.section = section
+                st.rerun()
 
 # Load data
 df = load_data()
@@ -152,18 +155,25 @@ with st.sidebar:
                 st.session_state.metric_page = None
                 st.rerun()
 
-    # Common filters
+    # Common filters for main pages and metrics
     if st.session_state.page in ["section_1", "section_2", "metric"]:
         st.header("⚙️ Settings")
         max_date = df['DATE'].max().date()
         default_start_date = max_date - timedelta(days=365)
+        default_end_date = max_date
 
-        st.date_input("Start date", default_start_date, min_value=df['DATE'].min().date(), max_value=max_date, key="start_date")
-        st.date_input("End date", max_date, min_value=df['DATE'].min().date(), max_value=max_date, key="end_date")
-        st.selectbox("Select time frame", ("Daily", "Weekly", "Monthly", "Quarterly"), key="time_frame")
-        st.selectbox("Chart Type", ["Bar", "Area"], key="chart_type")
+        start_date = st.date_input("Start date", default_start_date,
+                                   min_value=df['DATE'].min().date(),
+                                   max_value=max_date,
+                                   key="start_date")
+        end_date = st.date_input("End date", default_end_date,
+                                 min_value=df['DATE'].min().date(),
+                                 max_value=max_date,
+                                 key="end_date")
+        time_frame = st.selectbox("Select time frame", ("Daily", "Weekly", "Monthly", "Quarterly"), key="time_frame")
+        chart_type = st.selectbox("Chart Type", ["Bar", "Area"], key="chart_type")
 
-# Define metrics
+# Define your metrics
 metrics = [
     ("Total Subscribers", "NET_SUBSCRIBERS", '#29b80a'),
     ("Total Views", "VIEWS", '#FF9F36'),
@@ -182,16 +192,26 @@ if st.session_state.page == "welcome":
 
 elif st.session_state.page == "section_1":
     st.header("Section 1: All-Time Statistics")
-    cols = st.columns(3)
+    cols = st.columns(4)
     for i, (title, column, color) in enumerate(metrics):
         total_value = df[column].sum()
-        col = cols[i % 3]
-        display_metric_with_button(col, title, total_value, df, column, color)
+        display_metric_with_button(cols[i % 4], title, total_value, df, column, color, key_suffix="section1", section="section_1")
 
 elif st.session_state.page == "section_2":
     st.header("Section 2: Advanced Analytics")
-    cols = st.columns(3)
+    cols = st.columns(4)
     for i, (title, column, color) in enumerate(metrics):
         total_value = df[column].sum()
-        col = cols[i % 3]
-        display_metric_with_button(col, title, total_value, df, column, color)
+        display_metric_with_button(cols[i % 4], title, total_value, df, column, color, key_suffix="section2", section="section_2")
+
+elif st.session_state.page == "metric":
+    metric_title = st.session_state.metric_page.replace("_", " ").title()
+    st.title(f"{metric_title} Chart")
+    column_map = {m[0]: m[1] for m in metrics}
+    metric_column = column_map.get(metric_title, None)
+
+    if metric_column:
+        create_metric_chart(df, metric_column, st.session_state.chart_type, time_frame=st.session_state.time_frame)
+    else:
+        st.error("Metric column not found.")
+
