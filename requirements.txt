@@ -1,7 +1,4 @@
-streamlit
-pandas
-plotly
-openpyxl
-millify
-numpy
-streamlit-open-menu
+streamlit==1.26.0
+pandas==2.0.3
+plotly==5.17.0
+numpy==1.25.0
