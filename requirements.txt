@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+openpyxl
+millify
+numpy
+streamlit-open-menu
